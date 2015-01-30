@@ -1,0 +1,72 @@
+{#################################################################### 
+   RSVP LSP jinja2 template -- Steve Williams
+   Maintaining the RSVP-TE LSP full mesh is time consuming.  This
+   example demonstrates an approach to this problem in a multi-vendor
+   network.
+   
+   Features:
+   -create target configuration for each router in the data file
+   -output appropriate vendor syntax
+   -only create configs for target systems that are PEs
+   -only create LSPs destined to PE routers
+   -name LSPs "from-{{local_hostname}}-to-{{destination_hostname}}"
+
+   Inputs:  YAML file with routers defined as follows:
+   ---
+   - router: R1
+     role: PE
+     vendor: juniper
+     lo0_ip: 10.0.0.1
+
+   Outputs:  Screen output of all target routers
+
+   Indents:  The loops and control structures are indented as one would
+   normally do in a tradtional script.  However, in a jinja2 template
+   text outside of control structures is part of the output.  For example,
+
+   protocols {
+       mpls {
+
+   is not indented, but is inside the control hierarchy of the first for
+   loop and first if statement.  Indenting this text is undesirable as it 
+   would prepend whitespace in the output.
+######################################################################}
+
+{#- loop through all routers, check if they're PEs #}
+{%- for target in config if target.role == 'PE' %}
+{#- The following block isn't a code comment, rather a separator between
+    router configurations in the output #}
+#############################################################
+## Router:{{target.router}}   Role:{{target.role}}   Vendor:{{target.vendor}}
+#############################################################
+
+    {#- if the target is juniper, use this syntax, if not go down to the cisco elif #}
+    {%- if target.vendor == 'juniper' %}
+protocols {
+    mpls {
+        {#- go through all routers again to determine LSP destinations #}
+        {%- for dest in config %}
+        {#- make sure destination is a PE and not your own lo0 #}
+            {%- if dest.role == 'PE' and target.lo0_ip != dest.lo0_ip %} 
+        label-switched-path from-{{ target.router }}-to-{{ dest.router }} {
+            to {{ dest.lo0_ip }};
+            fast-reroute;
+        }
+            {%- endif %}
+        {%- endfor %}
+    }
+}
+    {#- if target vendor is cisco, use this syntax #}
+    {#- i'm not sure if this is valid Cisco syntax #}
+    {%- elif target.vendor == 'cisco' %}
+configure terminal
+        {#- go through all router again to determine LSP destinations #}
+        {%- for dest in config %}
+        {#- make sure destination is a PE and not your own lo0 #}
+            {%- if dest.role == 'PE' and target.lo0_ip != dest.lo0_ip %}
+interface tunnel-te from-{{ target.router }}-to-{{ dest.router }}
+destination {{ dest.lo0_ip }}
+            {%- endif %}
+        {%- endfor %}
+    {%- endif %}
+{%- endfor %}
